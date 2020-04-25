@@ -175,95 +175,17 @@ class sp_Inception(Network):
 		
 			self.add_connection(lc_output_comp_conn, source=self.layers[name], target=self.layers[name])
 
-		#start count at -n_neurons so it doesn't count input neurons in count
-		concat_n = -n_input
-		for layer in self.layers:
-			concat_n += layer.n
+		concat_w = torch.flatten(self.connections['fc_input_output_conn'])
+		for connection in self.connections:
+			if "Input_to_lc" in connection.name:
+				concat_w = torch.cat((concat_w, flatten(connection.w))
 
 		concat_layer = AdaptiveLIFNodes(
-			n=concat_n,
+			n=concat_w.size(0),
 			traces=False,
-			tc_trace=20.0,
-			thresh=-52.0,
-			rest=-65.0,
-			reset=-65.0,
-			refrac=5,
-			tc_decay=tc_decay,
-			thetaplus=theta_plus,
-			tc_theta_decay=tc_theta_decay,
 		)
 
-		self.add_layer(concat_layer, name='concat_layer')
+		self.add_layer(concat_layer, 'concat_layer')
 
-		#TODO figure out how to concatenate weighs, currently creating a connection from everything to concat layer
-		#then making a recurrent connection to itself as a concatenation of all layers (nned to make everything into a vector and concat along one axis)
-		concat_w = torch.tensor(())
-		for connection in self.connections:
-			if "Input_to" in connection.name:
-				w = torch.flatten(connection.w)
-				concat_w = torch.cat((concat_w, w.view(concat_w.size)), -1)
-				source_layer = connection.target
-				concat_connection = Connection(source=source_layer, target=concat_layer, w=w)
-
-seed = 0
-n_neurons = 112
-n_epochs = 1
-n_test = 10000
-n_workers = -1
-theta_plus = 0.05
-time = 100
-dt = 1
-intensity = 128
-progress_interval = 16
-update_steps = 10
-batch_size = 16
-train = True
-plot = False
-gpu = True
-
-if not train:
-	update_steps = n_test
-
-n_sqrt = int(np.ceil(np.sqrt(n_neurons)))
-start_intensity = intensity
-
-update_interval = update_steps * batch_size
-
-
-# Sets up Gpu use
-if gpu:
-	torch.cuda.manual_seed_all(seed)
-else:
-	torch.manual_seed(seed)
-	
-# Determines number of workers to use
-if n_workers == -1:
-	n_workers = gpu * 4 * torch.cuda.device_count()
-
-network = sp_Inception(
-	n_input=784,
-	n_neurons=n_neurons,
-	kernel_size=[24, 16],
-	stride=[4, 6],
-	n_filters=[112, 112],
-	dt=dt,
-	theta_plus=theta_plus,
-	input_shape=(28, 28),
-)
-
-if gpu:
-	#os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-	network.to("cuda")
-
-
-# Load MNIST data.
-dataset = MNIST(
-	PoissonEncoder(time=time, dt=dt),
-	None,
-	root=os.path.join("data", "MNIST"),
-	download=True,
-	transform=transforms.Compose(
-	[transforms.ToTensor(), transforms.Lambda(lambda x: x * intensity)]
-	),
-)
-
+		concat_conn = Connection(source=concat_layer, target=concat_layer, w=concat_w)
+		self.add_connection(concat_conn, source=concat_layer, target=concat_layer)
