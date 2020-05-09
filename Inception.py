@@ -23,6 +23,7 @@ class sp_Inception(Network):
 		self,
 		n_input: int,
 		n_neurons: int,
+		n_classes: int,
 		n_fc: int = 1,
 		kernel_size: Union[Sequence[int], Sequence[Tuple[int, int]]],
 		stride: Union[Sequence[int], Sequence[Tuple[int, int]]],
@@ -190,8 +191,8 @@ class sp_Inception(Network):
 		
 			self.add_connection(lc_output_comp_conn, source=self.layers[lc_name], target=self.layers[lc_name])
 
-		vfa_layer = IFNodes(n=n_classesd, learning=False)
-		self.add_layer(vfa_layer, name='vfa_layer')
+		vfa_layer = IFNodes(n=n_classes, learning=False)
+		self.add_layer(vfa_layer, name='vfa_layer', thresh=-np.inf)
 
 		concat_layers = dict(set(self.layers) - {'Input'})
 

@@ -77,4 +77,3 @@ class ConcatConnection(AbstractConnection):
 		Contains resetting logic for the connection.
 		"""
 		super().reset_state_variables()
-
