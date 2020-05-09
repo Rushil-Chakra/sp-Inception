@@ -4,17 +4,11 @@ import torch
 import os
 import numpy as np
 from torch.nn.modules.utils import _pair
-from torchvision import transforms
-from tqdm import tqdm
-
-from time import time as t
 
 from bindsnet.network import Network
 from bindsnet.network.nodes import Input, DiehlAndCookNodes, IFNodes
 from bindsnet.network.topology import Connection, LocalConnection
 from bindsnet.learning import PostPre, NoOp
-from bindsnet.datasets import MNIST, DataLoader
-from bindsnet.encoding import PoissonEncoder
 
 from ConcatConnection import ConcatConnection
 
@@ -104,7 +98,7 @@ class sp_Inception(Network):
 				norm=norm,
 			)
 
-			self.add_connection(fc_input_output_conn, source=Input, target=self.layers[fc_name])
+			self.add_connection(fc_input_output_conn, source='Input', target=fc_name)
 
 			w = -self.inh * (
 				torch.ones(self.n_neurons, self.n_neurons)
@@ -119,25 +113,24 @@ class sp_Inception(Network):
 				wmax=0
 			)
 
-			self.add_connection(fc_output_comp_conn, source=self.layers[fc_name], target=self.layers[fc_name])
+			self.add_connection(fc_output_comp_conn, source=fc_name, target=fc_name)
 
 		num_lc_layers = len(n_filters)
-		conv_sizes = [0] * num_lc_layers
-
 
 		for i in range(num_lc_layers):
+			conv_size = [0, 0]
 			kernel_size[i] = _pair(kernel_size[i])
 			stride[i] = _pair(stride[i])
 
 			if kernel_size[i] == input_shape:
-				conv_sizes[i] = [1, 1]
+				conv_size = [1, 1]
 			else:
-				conv_sizes[i] = (
+				conv_size = (
 					int((input_shape[0] - kernel_size[i][0]) / stride[i][0]) + 1,
 					int((input_shape[1] - kernel_size[i][1]) / stride[i][1]) + 1,
 				)
 
-			total_neuron += self.n_filters[i] * conv_sizes[i][0] * conv_sizes[i][1]
+			total_neuron += self.n_filters[i] * conv_size[0] * conv_size[1]
 
 			lc_output = DiehlAndCookNodes(
 				n=self.n_filters[i] * conv_sizes[i][0] * conv_sizes[i][1],
@@ -155,7 +148,7 @@ class sp_Inception(Network):
 			lc_name = 'lc_output' + str(i)
 			self.add_layer(lc_output, name=lc_name)
 
-			w = 0.3 * torch.rand(self.n_input, self.n_filters[i] * conv_sizes[i][0] * conv_sizes[i][1])
+			w = 0.3 * torch.rand(self.n_input, self.n_filters[i] * conv_size[0] * conv_size[1])
 			lc_input_output_conn = LocalConnection(
 				source=input_layer,
 				target=self.layers[name],
@@ -171,7 +164,7 @@ class sp_Inception(Network):
 				input_shape=input_shape,
 			)	   
 
-			self.add_connection(lc_input_output_conn, source=Input, target=self.layers[lc_name])
+			self.add_connection(lc_input_output_conn, source="Input", target=self.layers[lc_name])
 			
 			#makes weights so that competition is in each receptive field
 			w = torch.zeros(n_filters, *conv_size, n_filters, *conv_size)
@@ -187,7 +180,7 @@ class sp_Inception(Network):
 				n_filters * conv_size[0] * conv_size[1],
 			)
 			
-			lc_output_comp_conn = Connection(source=self.layers[lc_name], target=self.layers[lc_name], w=w)
+			lc_output_comp_conn = Connection(source=lc_name, target=lc_name, w=w)
 		
 			self.add_connection(lc_output_comp_conn, source=self.layers[lc_name], target=self.layers[lc_name])
 
