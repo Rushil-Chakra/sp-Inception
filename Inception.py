@@ -18,10 +18,10 @@ class sp_Inception(Network):
 		n_input: int,
 		n_neurons: int,
 		n_classes: int,
-		n_fc: int = 1,
 		kernel_size: Union[Sequence[int], Sequence[Tuple[int, int]]],
 		stride: Union[Sequence[int], Sequence[Tuple[int, int]]],
 		n_filters: Sequence[int],
+		n_fc: int = 1,
 		exc: float = 22.5,
 		inh: float = 17.5,
 		dt: float = 1.0,
@@ -122,18 +122,18 @@ class sp_Inception(Network):
 			kernel_size[i] = _pair(kernel_size[i])
 			stride[i] = _pair(stride[i])
 
-			if kernel_size[i] == input_shape:
+			if kernel_size[i] == input_shape[1:]:
 				conv_size = [1, 1]
 			else:
 				conv_size = (
-					int((input_shape[0] - kernel_size[i][0]) / stride[i][0]) + 1,
-					int((input_shape[1] - kernel_size[i][1]) / stride[i][1]) + 1,
+					int((input_shape[1] - kernel_size[i][0]) / stride[i][0]) + 1,
+					int((input_shape[2] - kernel_size[i][1]) / stride[i][1]) + 1,
 				)
 
 			total_neuron += self.n_filters[i] * conv_size[0] * conv_size[1]
 
 			lc_output = DiehlAndCookNodes(
-				n=self.n_filters[i] * conv_sizes[i][0] * conv_sizes[i][1],
+				n=self.n_filters[i] * conv_size[0] * conv_size[1],
 				traces=True,
 				tc_trace=20.0,
 				thresh=-52.0,
@@ -151,7 +151,7 @@ class sp_Inception(Network):
 			w = 0.3 * torch.rand(self.n_input, self.n_filters[i] * conv_size[0] * conv_size[1])
 			lc_input_output_conn = LocalConnection(
 				source=input_layer,
-				target=self.layers[name],
+				target=self.layers[lc_name],
 				kernel_size=kernel_size[i],
 				stride=stride[i],
 				n_filters=n_filters[i],
@@ -161,35 +161,35 @@ class sp_Inception(Network):
 				wmin=wmin,
 				wmax=wmax,
 				norm=norm,
-				input_shape=input_shape,
+				input_shape=input_shape[1:],
 			)	   
 
-			self.add_connection(lc_input_output_conn, source="Input", target=self.layers[lc_name])
+			self.add_connection(lc_input_output_conn, source="Input", target=lc_name)
 			
 			#makes weights so that competition is in each receptive field
-			w = torch.zeros(n_filters, *conv_size, n_filters, *conv_size)
-			for fltr1 in range(n_filters):
-				for fltr2 in range(n_filters):
+			w = torch.zeros(n_filters[i], *conv_size, n_filters[i], *conv_size)
+			for fltr1 in range(n_filters[i]):
+				for fltr2 in range(n_filters[i]):
 					if fltr1 != fltr2:
-						for i in range(conv_size[0]):
-							for j in range(conv_size[1]):
-								w[fltr1, i, j, fltr2, i, j] = -inh
+						for j in range(conv_size[0]):
+							for k in range(conv_size[1]):
+								w[fltr1, j, k, fltr2, j, k] = -inh
 
 			w = w.view(
-				n_filters * conv_size[0] * conv_size[1],
-				n_filters * conv_size[0] * conv_size[1],
+				n_filters[i] * conv_size[0] * conv_size[1],
+				n_filters[i] * conv_size[0] * conv_size[1],
 			)
 			
-			lc_output_comp_conn = Connection(source=lc_name, target=lc_name, w=w)
+			lc_output_comp_conn = Connection(source=self.layers[lc_name], target=self.layers[lc_name], w=w)
 		
-			self.add_connection(lc_output_comp_conn, source=self.layers[lc_name], target=self.layers[lc_name])
+			self.add_connection(lc_output_comp_conn, source=lc_name, target=lc_name)
 
-		vfa_layer = IFNodes(n=n_classes, learning=False)
-		self.add_layer(vfa_layer, name='vfa_layer', thresh=-np.inf)
+		concat_layers = {i:self.layers[i] for i in self.layers if i!='Input'}
 
-		concat_layers = dict(set(self.layers) - {'Input'})
+		vfa_layer = IFNodes(n=n_classes, learning=False, thresh=-np.inf)
+		self.add_layer(vfa_layer, name='vfa_layer')
 
-		concat_conn = ConcatConection(
+		concat_conn = ConcatConnection(
 			source=concat_layers,
 			target=vfa_layer,
 		)

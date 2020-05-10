@@ -5,11 +5,12 @@ import torch
 from torch.nn import Module, Parameter
 
 from bindsnet.network.nodes import Nodes
+from bindsnet.network.topology import AbstractConnection
 
 class ConcatConnection(AbstractConnection):
 	def __init__(
 		self,
-		source: Dict[Nodes],
+		source: Dict[str, Nodes],
 		target: Nodes,
 		nu: Optional[Union[float, Sequence[float]]] = None,
 		reduction: Optional[callable] = None,
@@ -20,7 +21,7 @@ class ConcatConnection(AbstractConnection):
 		super().__init__(source, target, nu, reduction, weight_decay, **kwargs)
 
 		w = kwargs.get("w", None)
-		source_n = np.sum(source.values().n)
+		source_n = np.sum(nodes.n for nodes in list(source.values()))
 		
 		if w is None:
 			if self.wmin == -np.inf or self.wmax == np.inf:
@@ -40,7 +41,7 @@ class ConcatConnection(AbstractConnection):
 			kwargs.get("b", torch.zeros(target.n)), requires_grad=False
 		)
 
-	def compute(self, s: Dict[torch.Tensor]) -> torch.Tensor:
+	def compute(self, s: torch.Tensor) -> torch.Tensor:
 		# language=rst
 		"""
 		Compute pre-activations given spikes using connection weights.
@@ -49,7 +50,6 @@ class ConcatConnection(AbstractConnection):
 				 decaying spike activation).
 		"""
 		# Compute multiplication of spike activations by weights and add bias.
-		s = torch.cat(tuple(s.values()), dim=0)
 		post = s.float().view(s.size(0), -1) @ self.w + self.b
 		return post.view(s.size(0), *self.target.shape)
 
