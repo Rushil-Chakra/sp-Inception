@@ -25,7 +25,7 @@ class sp_Inception(Network):
 		exc: float = 22.5,
 		inh: float = 17.5,
 		dt: float = 1.0,
-		nu: Optional[Union[float, Sequence[float]]] = [0.01, 0.0001],
+		nu: Optional[Union[float, Sequence[float]]] = [0.0001, 0.01],
 		reduction: Optional[callable] = None,
 		wmin: float = 0.0,
 		wmax: float = 1.0,

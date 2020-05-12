@@ -40,9 +40,9 @@ theta_plus = 0.05
 time = 100
 dt = 1
 intensity = 128
-progress_interval = 16
-update_steps = 10
-batch_size = 16
+progress_interval = 10
+update_steps = 256
+batch_size = 32
 train = True
 plot = False
 gpu = True
@@ -66,7 +66,7 @@ else:
 	
 # Determines number of workers to use
 if n_workers == -1:
-	n_workers = gpu * 4 * torch.cuda.device_count()
+	n_workers = gpu * 8 * torch.cuda.device_count()
 
 network = sp_Inception(
 	n_input=784,
@@ -83,7 +83,6 @@ network = sp_Inception(
 if gpu:
 	#os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 	network.to("cuda")
-
 
 # Load MNIST data.
 dataset = MNIST(
@@ -103,12 +102,13 @@ voltage_record = torch.zeros(update_interval, time, n_classes)
 # Neuron assignments and spike proportions.
 proportions = torch.zeros(n_total, n_classes)
 rates = torch.zeros(n_total, n_classes)
+assignments = -torch.ones(n_total)
 
 # Sequence of accuracy estimates.
-accuracy = []
+accuracy = {'accuracy':[]}
 
-vfa_voltage_monitor = Monitor(network.layers["vfa_layer"], ["v"], time=time)
-network.add_monitor(vfa_voltage_monitor, name="vfa_voltage")
+#vfa_voltage_monitor = Monitor(network.layers["vfa_layer"], ["v"], time=time)
+#network.add_monitor(vfa_voltage_monitor, name="vfa_voltage")
 
 spikes = {}
 for layer in set(network.layers) - {'Input', 'vfa_layer'}:
@@ -149,11 +149,21 @@ for epoch in range(n_epochs):
 
 		if step % update_steps == 0 and step > 0:
 			# Convert the array of labels into a tensor
-			label_tensor = torch.tensor(labels)		
+			label_tensor = torch.tensor(labels)	
+			'''
+			predictions = proportion_weighting(
+				spikes=spike_record,
+				assignments=assignments,
+				proportions=proportions,
+				n_labels=n_classes
+			)
+			'''
+			predictions = vfa_prediction(
+				spikes=spike_record,
+				proportions=proportions
+			)
 
-			predictions = vfa_prediction(voltages=voltage_record)
-
-			accuracy.append(
+			accuracy['accuracy'].append(
 			100
 			* torch.sum(label_tensor.long() == predictions).item()
 			/len(label_tensor)
@@ -162,41 +172,49 @@ for epoch in range(n_epochs):
 			print(
 				"Accuracy: %.2f (last), %.2f (average), %.2f (best)\n"
 				% (
-					accuracy[-1],
-					np.mean(accuracy),
-					np.max(accuracy),
+					accuracy['accuracy'][-1],
+					np.mean(accuracy['accuracy']),
+					np.max(accuracy['accuracy']),
 				)
 			)
 
 		#assign weights for concat connection
-			weights = vfa_assignment(
+			'''
+			assignments, proportions, rates = assign_labels(
 				spikes=spike_record,
 				labels=label_tensor,
 				n_labels=n_classes,
 				rates=rates
 			)
-			network.connections[('concat_layers', 'vfa_layer')].w = Parameter(weights, requires_grad=False)
-
+			'''
+			proportions, rates = vfa_assignment(
+				spikes=spike_record,
+				labels=label_tensor,
+				n_labels=n_classes,
+				rates=rates
+			)
 			labels = []
-	
+
 		labels.extend(batch["label"].tolist())
 
 		# Run the network on the input.
 		network.run(inputs=inputs, time=time, input_time_dim=1)
 
 		s = torch.cat(tuple(monitor.get('s').permute((1, 0, 2)) for monitor in list(spikes.values())), dim=2)
+		#s = spikes['fc_output0'].get('s').permute((1, 0, 2))
 		spike_record[
 			(step * batch_size)
 			% update_interval : (step * batch_size % update_interval)
 			+ s.size(0)
 		] = s
-
+		'''
 		v = vfa_voltage_monitor.get('v').permute((1, 0, 2))
 		voltage_record[
 			(step * batch_size)
 			% update_interval: (step * batch_size % update_interval)
 			+ v.size(0)
 		] = v
+		'''
 
 		network.reset_state_variables()  # Reset state variables.
 
