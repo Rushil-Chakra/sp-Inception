@@ -22,10 +22,9 @@ class sp_Inception(Network):
 		stride: Union[Sequence[int], Sequence[Tuple[int, int]]],
 		n_filters: Sequence[int],
 		n_fc: int = 1,
-		exc: float = 22.5,
 		inh: float = 17.5,
 		dt: float = 1.0,
-		nu: Optional[Union[float, Sequence[float]]] = [0.0001, 0.01],
+		nu: Optional[Union[float, Sequence[float]]] = (1e-4, 1e-2),
 		reduction: Optional[callable] = None,
 		wmin: float = 0.0,
 		wmax: float = 1.0,
@@ -34,7 +33,6 @@ class sp_Inception(Network):
 		theta_plus: float = 0.05,
 		tc_theta_decay: float = 1e7,
 		input_shape: Optional[Iterable[int]] = None,	
-		R: Optional[float] = 60.0,
 
 	) -> None:  
 	
@@ -48,7 +46,6 @@ class sp_Inception(Network):
 		self.kernel_size = kernel_size
 		self.stride = stride
 		self.n_filters = n_filters
-		self.exc = exc
 		self.inh = inh
 		self.dt = dt
 		self.nu = nu
@@ -66,7 +63,7 @@ class sp_Inception(Network):
 		self.add_layer(input_layer, name='Input')
 		
 		total_neuron = 0
-
+		
 		for i in range(n_fc):
 			total_neuron += n_neurons
 
@@ -114,9 +111,9 @@ class sp_Inception(Network):
 			)
 
 			self.add_connection(fc_output_comp_conn, source=fc_name, target=fc_name)
-
+			
 		num_lc_layers = len(n_filters)
-
+		
 		for i in range(num_lc_layers):
 			conv_size = [0, 0]
 			kernel_size[i] = _pair(kernel_size[i])
@@ -148,7 +145,6 @@ class sp_Inception(Network):
 			lc_name = 'lc_output' + str(i)
 			self.add_layer(lc_output, name=lc_name)
 
-			w = 0.3 * torch.rand(self.n_input, self.n_filters[i] * conv_size[0] * conv_size[1])
 			lc_input_output_conn = LocalConnection(
 				source=input_layer,
 				target=self.layers[lc_name],
@@ -160,7 +156,7 @@ class sp_Inception(Network):
 				update_rule=PostPre,
 				wmin=wmin,
 				wmax=wmax,
-				norm=norm,
+				norm=0.2,
 				input_shape=input_shape[1:],
 			)	   
 
@@ -183,7 +179,9 @@ class sp_Inception(Network):
 			lc_output_comp_conn = Connection(source=self.layers[lc_name], target=self.layers[lc_name], w=w)
 		
 			self.add_connection(lc_output_comp_conn, source=lc_name, target=lc_name)
+			
 
+		'''
 		concat_layers = {i:self.layers[i] for i in self.layers if i!='Input'}
 
 		vfa_layer = IFNodes(n=n_classes, learning=False, thresh=-np.inf)
@@ -195,3 +193,4 @@ class sp_Inception(Network):
 		)
 
 		self.add_connection(concat_conn, source='concat_layers', target='vfa_layer')
+		'''

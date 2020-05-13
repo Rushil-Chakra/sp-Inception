@@ -34,7 +34,6 @@ n_classes = 10
 n_epochs = 1
 n_test = 10000
 n_workers = -1
-exc = 22.5
 inh = 120
 theta_plus = 0.05
 time = 100
@@ -42,9 +41,9 @@ dt = 1
 intensity = 128
 progress_interval = 10
 update_steps = 256
-batch_size = 32
+batch_size = 16
 train = True
-plot = False
+plot = True
 gpu = True
 
 n_total = 1568
@@ -52,7 +51,7 @@ n_total = 1568
 if not train:
 	update_steps = n_test
 
-n_sqrt = int(np.ceil(np.sqrt(n_neurons)))
+n_sqrt = int(np.ceil(np.sqrt(448)))
 start_intensity = intensity
 
 update_interval = update_steps * batch_size
@@ -71,7 +70,8 @@ if n_workers == -1:
 network = sp_Inception(
 	n_input=784,
 	n_neurons=n_neurons,
-	n_classes= n_classes,
+	n_classes=n_classes,
+	inh=inh,
 	kernel_size=[24, 16],
 	stride=[4, 6],
 	n_filters=[n_neurons, n_neurons],
@@ -107,11 +107,8 @@ assignments = -torch.ones(n_total)
 # Sequence of accuracy estimates.
 accuracy = {'accuracy':[]}
 
-#vfa_voltage_monitor = Monitor(network.layers["vfa_layer"], ["v"], time=time)
-#network.add_monitor(vfa_voltage_monitor, name="vfa_voltage")
-
 spikes = {}
-for layer in set(network.layers) - {'Input', 'vfa_layer'}:
+for layer in set(network.layers) - {'Input'}:
 	spikes[layer] = Monitor(network.layers[layer], state_vars=["s"], time=time)
 	network.add_monitor(spikes[layer], name="%s_spikes" % layer)
 
@@ -141,7 +138,7 @@ for epoch in range(n_epochs):
 		pin_memory=gpu,
 	)
 
-	for step, batch in enumerate(dataloader):
+	for step, batch in enumerate(tqdm(dataloader)):
 		# Get next input sample.
 		inputs = {"Input": batch["encoded_image"]}
 		if gpu:
@@ -150,14 +147,7 @@ for epoch in range(n_epochs):
 		if step % update_steps == 0 and step > 0:
 			# Convert the array of labels into a tensor
 			label_tensor = torch.tensor(labels)	
-			'''
-			predictions = proportion_weighting(
-				spikes=spike_record,
-				assignments=assignments,
-				proportions=proportions,
-				n_labels=n_classes
-			)
-			'''
+			
 			predictions = vfa_prediction(
 				spikes=spike_record,
 				proportions=proportions
@@ -178,21 +168,13 @@ for epoch in range(n_epochs):
 				)
 			)
 
-		#assign weights for concat connection
-			'''
-			assignments, proportions, rates = assign_labels(
-				spikes=spike_record,
-				labels=label_tensor,
-				n_labels=n_classes,
-				rates=rates
-			)
-			'''
 			proportions, rates = vfa_assignment(
 				spikes=spike_record,
 				labels=label_tensor,
 				n_labels=n_classes,
 				rates=rates
 			)
+
 			labels = []
 
 		labels.extend(batch["label"].tolist())
@@ -201,20 +183,27 @@ for epoch in range(n_epochs):
 		network.run(inputs=inputs, time=time, input_time_dim=1)
 
 		s = torch.cat(tuple(monitor.get('s').permute((1, 0, 2)) for monitor in list(spikes.values())), dim=2)
-		#s = spikes['fc_output0'].get('s').permute((1, 0, 2))
 		spike_record[
 			(step * batch_size)
 			% update_interval : (step * batch_size % update_interval)
 			+ s.size(0)
 		] = s
-		'''
-		v = vfa_voltage_monitor.get('v').permute((1, 0, 2))
-		voltage_record[
-			(step * batch_size)
-			% update_interval: (step * batch_size % update_interval)
-			+ v.size(0)
-		] = v
-		'''
+
+		if plot:
+			#image = batch["image"][:, 0].view(28, 28)
+			#inpt = inputs["X"][:, 0].view(time, 784).sum(0).view(28, 28)
+			input_exc_weights = network.connections[("Input", "lc_output0")].w
+			square_weights = get_square_weights(
+				input_exc_weights.view(784, 448), n_sqrt, 28
+			)
+			
+			weights_im = plot_weights(square_weights, im=weights_im)
+			perf_ax = plot_performance(accuracy, x_scale=update_steps * batch_size, ax=perf_ax)
+			#voltage_ims, voltage_axes = plot_voltages(
+			#	voltages, ims=voltage_ims, axes=voltage_axes, plot_type="line"
+			#S)
+
+			plt.pause(1e-8)
 
 		network.reset_state_variables()  # Reset state variables.
 
