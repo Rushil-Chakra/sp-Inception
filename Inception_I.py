@@ -104,8 +104,11 @@ proportions = torch.zeros(n_total, n_classes)
 rates = torch.zeros(n_total, n_classes)
 assignments = -torch.ones(n_total)
 
+vfa_proportions = torch.zeros(n_total, n_classes)
+vfa_rates = torch.zeros(n_total, n_classes)
+
 # Sequence of accuracy estimates.
-accuracy = {'accuracy':[]}
+accuracy = {'vfa':[], 'all':[], 'proportion':[]}
 
 spikes = {}
 for layer in set(network.layers) - {'Input'}:
@@ -148,31 +151,77 @@ for epoch in range(n_epochs):
 			# Convert the array of labels into a tensor
 			label_tensor = torch.tensor(labels)	
 			
-			predictions = vfa_prediction(
+			vfa_predictions = vfa_prediction(
 				spikes=spike_record,
-				proportions=proportions
+				proportions=vfa_proportions
 			)
 
-			accuracy['accuracy'].append(
+			# Get network predictions.
+			all_activity_pred = all_activity(
+				spikes=spike_record,
+				assignments=assignments,
+				n_labels=n_classes,
+			)
+			proportion_pred = proportion_weighting(
+				spikes=spike_record,
+				assignments=assignments,
+				proportions=proportions,
+				n_labels=n_classes,
+			)
+
+			accuracy['vfa'].append(
 			100
-			* torch.sum(label_tensor.long() == predictions).item()
+			* torch.sum(label_tensor.long() == vfa_predictions).item()
 			/len(label_tensor)
+			)
+			accuracy["all"].append(
+				100
+				* torch.sum(label_tensor.long() == all_activity_pred).item()
+				/ len(label_tensor)
+			)
+			accuracy["proportion"].append(
+				100
+				* torch.sum(label_tensor.long() == proportion_pred).item()
+				/ len(label_tensor)
 			)
 
 			print(
-				"Accuracy: %.2f (last), %.2f (average), %.2f (best)\n"
+				"VFA Accuracy: %.2f (last), %.2f (average), %.2f (best)\n"
 				% (
-					accuracy['accuracy'][-1],
-					np.mean(accuracy['accuracy']),
-					np.max(accuracy['accuracy']),
+					accuracy['vfa'][-1],
+					np.mean(accuracy['vfa']),
+					np.max(accuracy['vfa']),
 				)
 			)
+			print(
+				"\nAll activity accuracy: %.2f (last), %.2f (average), %.2f (best)"
+				% (
+					accuracy["all"][-1],
+					np.mean(accuracy["all"]),
+					np.max(accuracy["all"]),
+				)
+			)
+			print(
+				"Proportion weighting accuracy: %.2f (last), %.2f (average), %.2f (best)\n"
+				% (
+					accuracy["proportion"][-1],
+					np.mean(accuracy["proportion"]),
+					np.max(accuracy["proportion"]),
+				)
+			)
+			
+			assignments, proportions, rates = assign_labels(
+                spikes=spike_record,
+                labels=label_tensor,
+                n_labels=n_classes,
+                rates=rates,
+            )
 
-			proportions, rates = vfa_assignment(
+			vfa_proportions, vfa_rates = vfa_assignment(
 				spikes=spike_record,
 				labels=label_tensor,
 				n_labels=n_classes,
-				rates=rates
+				rates=vfa_rates
 			)
 
 			labels = []
