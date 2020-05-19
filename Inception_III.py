@@ -29,7 +29,7 @@ from vfa_voting import vfa_assignment, vfa_prediction
 from Inception import sp_Inception
 
 seed = 0
-n_neurons = 112
+n_neurons = 300
 n_classes = 10
 n_epochs = 1
 n_test = 10000
@@ -43,10 +43,10 @@ progress_interval = 10
 update_steps = 256
 batch_size = 16
 train = True
-plot = True
+plot = False
 gpu = True
 
-n_total = 1568
+n_total = 6300
 
 if not train:
 	update_steps = n_test
@@ -65,16 +65,17 @@ else:
 	
 # Determines number of workers to use
 if n_workers == -1:
-	n_workers = gpu * 8 * torch.cuda.device_count()
+	n_workers = gpu * 4 * torch.cuda.device_count()
 
 network = sp_Inception(
 	n_input=784,
 	n_neurons=n_neurons,
 	n_classes=n_classes,
+	n_fc=4,
 	inh=inh,
-	kernel_size=[24, 16],
-	stride=[4, 6],
-	n_filters=[n_neurons, n_neurons],
+	kernel_size=[24, 24, 16],
+	stride=[4, 4, 6],
+	n_filters=[n_neurons, n_neurons, n_neurons],
 	dt=dt,
 	theta_plus=theta_plus,
 	input_shape=(1, 28, 28),
@@ -97,7 +98,6 @@ dataset = MNIST(
 
 # Record spikes during the simulation.
 spike_record = torch.zeros(update_interval, time, n_total)
-voltage_record = torch.zeros(update_interval, time, n_classes)
 
 # Neuron assignments and spike proportions.
 proportions = torch.zeros(n_total, n_classes)

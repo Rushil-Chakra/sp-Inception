@@ -29,7 +29,7 @@ from vfa_voting import vfa_assignment, vfa_prediction
 from Inception import sp_Inception
 
 seed = 0
-n_neurons = 112
+n_neurons = 400
 n_classes = 10
 n_epochs = 1
 n_test = 10000
@@ -43,10 +43,10 @@ progress_interval = 10
 update_steps = 256
 batch_size = 16
 train = True
-plot = True
+plot = False
 gpu = True
 
-n_total = 1568
+n_total = 8400
 
 if not train:
 	update_steps = n_test
@@ -71,10 +71,11 @@ network = sp_Inception(
 	n_input=784,
 	n_neurons=n_neurons,
 	n_classes=n_classes,
+	n_fc=4,
 	inh=inh,
-	kernel_size=[24, 16],
-	stride=[4, 6],
-	n_filters=[n_neurons, n_neurons],
+	kernel_size=[24, 24, 16],
+	stride=[4, 4, 6],
+	n_filters=[n_neurons, n_neurons, n_neurons],
 	dt=dt,
 	theta_plus=theta_plus,
 	input_shape=(1, 28, 28),

@@ -8,7 +8,7 @@ from torch.nn.modules.utils import _pair
 from bindsnet.network import Network
 from bindsnet.network.nodes import Input, DiehlAndCookNodes, IFNodes
 from bindsnet.network.topology import Connection, LocalConnection
-from bindsnet.learning import PostPre, NoOp
+from bindsnet.learning import PostPre, NoOp, WeightDependentPostPre
 
 from ConcatConnection import ConcatConnection
 
@@ -88,7 +88,7 @@ class sp_Inception(Network):
 				target=fc_output,
 				w=w,
 				nu=nu,
-				update_rule=PostPre,
+				update_rule=WeightDependentPostPre,
 				reduction=reduction,
 				wmin=wmin,
 				wmax=wmax,
@@ -153,7 +153,7 @@ class sp_Inception(Network):
 				n_filters=n_filters[i],
 				nu=nu,
 				reduction=reduction,
-				update_rule=PostPre,
+				update_rule=WeightDependentPostPre,
 				wmin=wmin,
 				wmax=wmax,
 				norm=0.2,
@@ -179,7 +179,6 @@ class sp_Inception(Network):
 			lc_output_comp_conn = Connection(source=self.layers[lc_name], target=self.layers[lc_name], w=w)
 		
 			self.add_connection(lc_output_comp_conn, source=lc_name, target=lc_name)
-			
 
 		'''
 		concat_layers = {i:self.layers[i] for i in self.layers if i!='Input'}
