@@ -3,7 +3,6 @@ import torch
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
-from torch.nn import Parameter
 
 from torchvision import transforms
 from tqdm import tqdm
@@ -13,26 +12,29 @@ from time import time as t
 from bindsnet import ROOT_DIR
 from bindsnet.datasets import MNIST, DataLoader
 from bindsnet.encoding import PoissonEncoder
+from bindsnet.evaluation import (
+	all_activity,
+	proportion_weighting,
+	assign_labels,
+)
+from bindsnet.models import DiehlAndCook2015v2
 from bindsnet.network.monitors import Monitor
 from bindsnet.utils import get_square_weights, get_square_assignments
-from bindsnet.evaluation import all_activity, proportion_weighting, assign_labels
 from bindsnet.analysis.plotting import (
 	plot_input,
 	plot_spikes,
 	plot_weights,
-	plot_assignments,
 	plot_performance,
+	plot_assignments,
 	plot_voltages,
-	plot_locally_connected_weights,
+	plot_locally_connected_weights
 )
 
 from vfa_voting import vfa_assignment, vfa_prediction
-from Inception import sp_Inception
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=0)
-parser.add_argument("--n_neurons", type=int, default=112)
+parser.add_argument("--n_neurons", type=int, default=100)
 parser.add_argument("--batch_size", type=int, default=32)
 parser.add_argument("--n_epochs", type=int, default=1)
 parser.add_argument("--n_test", type=int, default=10000)
@@ -69,75 +71,73 @@ train = args.train
 plot = args.plot
 gpu = args.gpu
 
-n_classes = 10
-n_total = 1568
-
-if not train:
-	update_steps = n_test
-
-n_sqrt = int(np.ceil(np.sqrt(n_neurons*9)))
-start_intensity = intensity
-
 update_interval = update_steps * batch_size
 
-
 # Sets up Gpu use
-if gpu:
+if gpu and torch.cuda.is_available():
 	torch.cuda.manual_seed_all(seed)
 else:
 	torch.manual_seed(seed)
-	
+
 # Determines number of workers to use
 if n_workers == -1:
-	n_workers = gpu * 8 * torch.cuda.device_count()
+	n_workers = gpu * 4 * torch.cuda.device_count()
 
-network = sp_Inception(
-	n_input=784,
+n_sqrt = int(np.ceil(np.sqrt(n_neurons)))
+start_intensity = intensity
+
+network = DiehlAndCook2015v2(
+	n_inpt=784,
 	n_neurons=n_neurons,
-	n_classes=n_classes,
 	inh=inh,
-	kernel_size=[24, 16],
-	stride=[4, 6],
-	n_filters=[n_neurons, n_neurons],
 	dt=dt,
+	norm=78.4,
+	nu=(1e-4, 1e-2),
 	theta_plus=theta_plus,
-	input_shape=(1, 28, 28),
+	inpt_shape=(1, 28, 28),
 )
 
 if gpu:
-	#os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 	network.to("cuda")
 
 # Load MNIST data.
 dataset = MNIST(
 	PoissonEncoder(time=time, dt=dt),
 	None,
-	root=os.path.join("data", "MNIST"),
+	root=os.path.join(ROOT_DIR, "data", "MNIST"),
 	download=True,
 	transform=transforms.Compose(
-	[transforms.ToTensor(), transforms.Lambda(lambda x: x * intensity)]
+		[transforms.ToTensor(), transforms.Lambda(lambda x: x * intensity)]
 	),
 )
 
-# Record spikes during the simulation.
-spike_record = torch.zeros(update_interval, time, n_total)
-voltage_record = torch.zeros(update_interval, time, n_classes)
-
 # Neuron assignments and spike proportions.
-proportions = torch.zeros(n_total, n_classes)
-rates = torch.zeros(n_total, n_classes)
-assignments = -torch.ones(n_total)
-
-vfa_proportions = torch.zeros(n_total, n_classes)
-vfa_rates = torch.zeros(n_total, n_classes)
+n_classes = 10
+assignments = -torch.ones(n_neurons)
+proportions = torch.zeros(n_neurons, n_classes)
+rates = torch.zeros(n_neurons, n_classes)
+vfa_proportions = torch.zeros(n_neurons, n_classes)
+vfa_rates = torch.zeros(n_neurons, n_classes)
 
 # Sequence of accuracy estimates.
-accuracy = {'vfa':[], 'all':[], 'proportion':[]}
+accuracy = {"vfa": [], "all": [], "proportion": []}
 
+# Voltage recording for excitatory and inhibitory layers.
+exc_voltage_monitor = Monitor(network.layers["Y"], ["v"], time=time)
+network.add_monitor(exc_voltage_monitor, name="exc_voltage")
+
+# Set up monitors for spikes and voltages
 spikes = {}
-for layer in set(network.layers) - {'Input'}:
+for layer in set(network.layers):
 	spikes[layer] = Monitor(network.layers[layer], state_vars=["s"], time=time)
 	network.add_monitor(spikes[layer], name="%s_spikes" % layer)
+
+voltages = {}
+for layer in set(network.layers) - {"X"}:
+	voltages[layer] = Monitor(
+		network.layers[layer], state_vars=["v"], time=time
+	)
+	network.add_monitor(voltages[layer], name="%s_voltages" % layer)
 
 inpt_ims, inpt_axes = None, None
 spike_ims, spike_axes = None, None
@@ -146,6 +146,9 @@ assigns_im = None
 perf_ax = None
 voltage_axes, voltage_ims = None, None
 
+spike_record = torch.zeros(update_interval, time, n_neurons)
+
+# Train the network.
 print("\nBegin training.\n")
 start = t()
 
@@ -153,7 +156,9 @@ for epoch in range(n_epochs):
 	labels = []
 
 	if epoch % progress_interval == 0:
-		print("Progress: %d / %d (%.4f seconds)" % (epoch, n_epochs, t() - start))
+		print(
+			"Progress: %d / %d (%.4f seconds)" % (epoch, n_epochs, t() - start)
+		)
 		start = t()
 
 	# Create a dataloader to iterate and batch data
@@ -167,36 +172,36 @@ for epoch in range(n_epochs):
 
 	for step, batch in enumerate(tqdm(dataloader)):
 		# Get next input sample.
-		inputs = {"Input": batch["encoded_image"]}
+		inputs = {"X": batch["encoded_image"]}
 		if gpu:
 			inputs = {k: v.cuda() for k, v in inputs.items()}
 
 		if step % update_steps == 0 and step > 0:
 			# Convert the array of labels into a tensor
-			label_tensor = torch.tensor(labels)	
-			
-			vfa_predictions = vfa_prediction(
-				spikes=spike_record,
-				proportions=vfa_proportions
-			)
+			label_tensor = torch.tensor(labels)
 
 			# Get network predictions.
+			
 			all_activity_pred = all_activity(
 				spikes=spike_record,
 				assignments=assignments,
 				n_labels=n_classes,
-			)
+			)	
 			proportion_pred = proportion_weighting(
 				spikes=spike_record,
 				assignments=assignments,
 				proportions=proportions,
 				n_labels=n_classes,
 			)
-
-			accuracy['vfa'].append(
-			100
-			* torch.sum(label_tensor.long() == vfa_predictions).item()
-			/len(label_tensor)
+			vfa_pred = vfa_prediction(
+				spikes=spike_record,
+				proportions=vfa_proportions
+			)
+			# Compute network accuracy according to available classification strategies.
+			accuracy["vfa"].append(
+				100
+				* torch.sum(label_tensor.long() == vfa_pred).item()
+				/ len(label_tensor)
 			)
 			accuracy["all"].append(
 				100
@@ -208,13 +213,12 @@ for epoch in range(n_epochs):
 				* torch.sum(label_tensor.long() == proportion_pred).item()
 				/ len(label_tensor)
 			)
-
 			print(
-				"\nVFA Accuracy: %.2f (last), %.2f (average), %.2f (best)"
+				"\nvfa accuracy: %.2f (last), %.2f (average), %.2f (best)"
 				% (
-					accuracy['vfa'][-1],
-					np.mean(accuracy['vfa']),
-					np.max(accuracy['vfa']),
+					accuracy["vfa"][-1],
+					np.mean(accuracy["vfa"]),
+					np.max(accuracy["vfa"]),
 				)
 			)
 			print(
@@ -233,14 +237,16 @@ for epoch in range(n_epochs):
 					np.max(accuracy["proportion"]),
 				)
 			)
+
+			# Assign labels to excitatory layer neurons.
 			
 			assignments, proportions, rates = assign_labels(
-                spikes=spike_record,
-                labels=label_tensor,
-                n_labels=n_classes,
-                rates=rates,
-            )
-
+				spikes=spike_record,
+				labels=label_tensor,
+				n_labels=n_classes,
+				rates=rates,
+			)
+			
 			vfa_proportions, vfa_rates = vfa_assignment(
 				spikes=spike_record,
 				labels=label_tensor,
@@ -249,29 +255,43 @@ for epoch in range(n_epochs):
 			)
 
 			labels = []
-
 		labels.extend(batch["label"].tolist())
-
 		# Run the network on the input.
 		network.run(inputs=inputs, time=time, input_time_dim=1)
 
-		s = torch.cat(tuple(monitor.get('s').permute((1, 0, 2)) for monitor in list(spikes.values())), dim=2)
+		# Add to spikes recording.
+		s = spikes["Y"].get("s").permute((1, 0, 2))
 		spike_record[
 			(step * batch_size)
 			% update_interval : (step * batch_size % update_interval)
 			+ s.size(0)
 		] = s
 
+		# Get voltage recording.
+		exc_voltages = exc_voltage_monitor.get("v")
+
+		# Optionally plot various simulation information.
 		if plot:
 			#image = batch["image"][:, 0].view(28, 28)
 			#inpt = inputs["X"][:, 0].view(time, 784).sum(0).view(28, 28)
-			#input_fc0_weights = network.connections[("Input", "lc_output1")].w
+			#input_exc_weights = network.connections[("X", "Y")].w
 			#square_weights = get_square_weights(
-			#	input_fc0_weights.view(n_total, n_classes), n_sqrt, 28
+			#	input_exc_weights.view(784, n_neurons), n_sqrt, 28
 			#)
-			#input_lc0_weights = network.connection[("Input", "lc_output1")].w
-
-			#weights_im = plot_weights(vfa_proportions, im=weights_im)
+			#square_assignments = get_square_assignments(assignments, n_sqrt)
+			#spikes_ = {
+			#	layer: spikes[layer].get("s")[:, 0].contiguous()
+			#	for layer in spikes
+			#}
+			#voltages = {"Y": exc_voltages}
+			#inpt_axes, inpt_ims = plot_input(
+			#	image, inpt, label=labels[step * batch_size % update_interval], axes=inpt_axes, ims=inpt_ims
+			#)
+			#spike_ims, spike_axes = plot_spikes(
+			#	spikes_, ims=spike_ims, axes=spike_axes
+			#)
+			#weights_im = plot_weights(square_weights, im=weights_im)
+			#assigns_im = plot_assignments(square_assignments, im=assigns_im)
 			perf_ax = plot_performance(accuracy, x_scale=update_steps * batch_size, ax=perf_ax)
 			#voltage_ims, voltage_axes = plot_voltages(
 			#	voltages, ims=voltage_ims, axes=voltage_axes, plot_type="line"
@@ -280,8 +300,6 @@ for epoch in range(n_epochs):
 			plt.pause(1e-8)
 
 		network.reset_state_variables()  # Reset state variables.
-
-if plot:
-	plt.savefig('Inception.png')
+plt.savefig("FC_benchmark-100.png")
 print("Progress: %d / %d (%.4f seconds)" % (epoch + 1, n_epochs, t() - start))
 print("Training complete.\n")

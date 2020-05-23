@@ -23,29 +23,53 @@ from bindsnet.analysis.plotting import (
 	plot_assignments,
 	plot_performance,
 	plot_voltages,
+	plot_locally_connected_weights,
 )
 
 from vfa_voting import vfa_assignment, vfa_prediction
 from Inception import sp_Inception
 
-seed = 0
-n_neurons = 224
-n_classes = 10
-n_epochs = 1
-n_test = 10000
-n_workers = -1
-inh = 120
-theta_plus = 0.05
-time = 100
-dt = 1
-intensity = 128
-progress_interval = 10
-update_steps = 256
-batch_size = 16
-train = True
-plot = False
-gpu = True
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--seed", type=int, default=0)
+parser.add_argument("--n_neurons", type=int, default=224)
+parser.add_argument("--batch_size", type=int, default=16)
+parser.add_argument("--n_epochs", type=int, default=1)
+parser.add_argument("--n_test", type=int, default=10000)
+parser.add_argument("--n_workers", type=int, default=-1)
+parser.add_argument("--update_steps", type=int, default=256)
+parser.add_argument("--inh", type=float, default=120)
+parser.add_argument("--theta_plus", type=float, default=0.05)
+parser.add_argument("--time", type=int, default=100)
+parser.add_argument("--dt", type=int, default=1.0)
+parser.add_argument("--intensity", type=float, default=128)
+parser.add_argument("--progress_interval", type=int, default=10)
+parser.add_argument("--train", dest="train", action="store_true")
+parser.add_argument("--test", dest="train", action="store_false")
+parser.add_argument("--plot", dest="plot", action="store_true")
+parser.add_argument("--gpu", dest="gpu", action="store_true")
+parser.set_defaults(plot=False, gpu=False, train=True)
+
+args = parser.parse_args()
+
+seed = args.seed
+n_neurons = args.n_neurons
+batch_size = args.batch_size
+n_epochs = args.n_epochs
+n_test = args.n_test
+n_workers = args.n_workers
+update_steps = args.update_steps
+inh = args.inh
+theta_plus = args.theta_plus
+time = args.time
+dt = args.dt
+intensity = args.intensity
+progress_interval = args.progress_interval
+train = args.train
+plot = args.plot
+gpu = args.gpu
+
+n_classes = 10
 n_total = 3136
 
 if not train:
@@ -104,11 +128,14 @@ proportions = torch.zeros(n_total, n_classes)
 rates = torch.zeros(n_total, n_classes)
 assignments = -torch.ones(n_total)
 
+vfa_proportions = torch.zeros(n_total, n_classes)
+vfa_rates = torch.zeros(n_total, n_classes)
+
 # Sequence of accuracy estimates.
-accuracy = {'accuracy':[]}
+accuracy = {'vfa':[], 'all':[], 'proportion':[]}
 
 spikes = {}
-for layer in set(network.layers) - {'Input', 'vfa_layer'}:
+for layer in set(network.layers) - {'Input'}:
 	spikes[layer] = Monitor(network.layers[layer], state_vars=["s"], time=time)
 	network.add_monitor(spikes[layer], name="%s_spikes" % layer)
 
@@ -148,31 +175,77 @@ for epoch in range(n_epochs):
 			# Convert the array of labels into a tensor
 			label_tensor = torch.tensor(labels)	
 			
-			predictions = vfa_prediction(
+			vfa_predictions = vfa_prediction(
 				spikes=spike_record,
-				proportions=proportions
+				proportions=vfa_proportions
 			)
 
-			accuracy['accuracy'].append(
+			# Get network predictions.
+			all_activity_pred = all_activity(
+				spikes=spike_record,
+				assignments=assignments,
+				n_labels=n_classes,
+			)
+			proportion_pred = proportion_weighting(
+				spikes=spike_record,
+				assignments=assignments,
+				proportions=proportions,
+				n_labels=n_classes,
+			)
+
+			accuracy['vfa'].append(
 			100
-			* torch.sum(label_tensor.long() == predictions).item()
+			* torch.sum(label_tensor.long() == vfa_predictions).item()
 			/len(label_tensor)
+			)
+			accuracy["all"].append(
+				100
+				* torch.sum(label_tensor.long() == all_activity_pred).item()
+				/ len(label_tensor)
+			)
+			accuracy["proportion"].append(
+				100
+				* torch.sum(label_tensor.long() == proportion_pred).item()
+				/ len(label_tensor)
 			)
 
 			print(
-				"Accuracy: %.2f (last), %.2f (average), %.2f (best)\n"
+				"\nVFA Accuracy: %.2f (last), %.2f (average), %.2f (best)"
 				% (
-					accuracy['accuracy'][-1],
-					np.mean(accuracy['accuracy']),
-					np.max(accuracy['accuracy']),
+					accuracy['vfa'][-1],
+					np.mean(accuracy['vfa']),
+					np.max(accuracy['vfa']),
 				)
 			)
+			print(
+				"All activity accuracy: %.2f (last), %.2f (average), %.2f (best)"
+				% (
+					accuracy["all"][-1],
+					np.mean(accuracy["all"]),
+					np.max(accuracy["all"]),
+				)
+			)
+			print(
+				"Proportion weighting accuracy: %.2f (last), %.2f (average), %.2f (best)\n"
+				% (
+					accuracy["proportion"][-1],
+					np.mean(accuracy["proportion"]),
+					np.max(accuracy["proportion"]),
+				)
+			)
+			
+			assignments, proportions, rates = assign_labels(
+                spikes=spike_record,
+                labels=label_tensor,
+                n_labels=n_classes,
+                rates=rates,
+            )
 
-			proportions, rates = vfa_assignment(
+			vfa_proportions, vfa_rates = vfa_assignment(
 				spikes=spike_record,
 				labels=label_tensor,
 				n_labels=n_classes,
-				rates=rates
+				rates=vfa_rates
 			)
 
 			labels = []
@@ -188,6 +261,23 @@ for epoch in range(n_epochs):
 			% update_interval : (step * batch_size % update_interval)
 			+ s.size(0)
 		] = s
+
+		if plot:
+			#image = batch["image"][:, 0].view(28, 28)
+			#inpt = inputs["X"][:, 0].view(time, 784).sum(0).view(28, 28)
+			input_fc0_weights = network.connections[("Input", "fc_output0")].w
+			square_weights = get_square_weights(
+				input_fc0_weights.view(784, n_neurons), n_sqrt, 28
+			)
+			input_lc0_weights = network.connection[("Input", "lc_output0")].w
+
+			weights_im = plot_weights(square_weights, im=weights_im)
+			perf_ax = plot_performance(accuracy, x_scale=update_steps * batch_size, ax=perf_ax)
+			#voltage_ims, voltage_axes = plot_voltages(
+			#	voltages, ims=voltage_ims, axes=voltage_axes, plot_type="line"
+			#S)
+
+			plt.pause(1e-8)
 
 		network.reset_state_variables()  # Reset state variables.
 

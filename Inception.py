@@ -6,7 +6,7 @@ import numpy as np
 from torch.nn.modules.utils import _pair
 
 from bindsnet.network import Network
-from bindsnet.network.nodes import Input, DiehlAndCookNodes, IFNodes
+from bindsnet.network.nodes import Input, DiehlAndCookNodes
 from bindsnet.network.topology import Connection, LocalConnection
 from bindsnet.learning import PostPre, NoOp, WeightDependentPostPre
 
@@ -156,7 +156,7 @@ class sp_Inception(Network):
 				update_rule=WeightDependentPostPre,
 				wmin=wmin,
 				wmax=wmax,
-				norm=0.2,
+				norm=0.1,
 				input_shape=input_shape[1:],
 			)	   
 

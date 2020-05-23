@@ -35,14 +35,12 @@ def vfa_assignment(
 
 def vfa_prediction(
 	spikes: torch.Tensor,
-	#labels: torch.Tensor,
 	proportions: torch.Tensor,
-	#n_label: int,
 ) -> torch.Tensor:
 
 	spikes = spikes.sum(1)
 
-	voltages = spikes @ proportions
+	voltages = torch.matmul(spikes, proportions)
 	predictions = torch.sort(voltages, dim=1, descending=True)[1][:, 0]
 
 	return predictions
