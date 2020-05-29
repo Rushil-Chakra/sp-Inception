@@ -1,7 +1,7 @@
 import torch
-from typing import Optional, Tuple, Dict
+from typing import Optional
 
-def vfa_assignment(
+def  vfa(
 	spikes: torch.Tensor,
 	labels: torch.Tensor,
 	n_labels: int,
@@ -31,16 +31,7 @@ def vfa_assignment(
 	# Compute proportions of spike activity per class.
 	proportions = rates / rates.sum(1, keepdim=True)
 	proportions[proportions != proportions] = 0  # Set NaNs to 0
+
+	votes = torch.matmul(spikes, proportions)
+	predictions = torch.sort(votes, dim=1, descending=True)[1][:. 0]
 	return proportions, rates
-
-def vfa_prediction(
-	spikes: torch.Tensor,
-	proportions: torch.Tensor,
-) -> torch.Tensor:
-
-	spikes = spikes.sum(1)
-
-	voltages = torch.matmul(spikes, proportions)
-	predictions = torch.sort(voltages, dim=1, descending=True)[1][:, 0]
-
-	return predictions

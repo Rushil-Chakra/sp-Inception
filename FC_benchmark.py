@@ -16,6 +16,7 @@ from bindsnet.evaluation import (
 	all_activity,
 	proportion_weighting,
 	assign_labels,
+	vfa,
 )
 from bindsnet.models import DiehlAndCook2015v2
 from bindsnet.network.monitors import Monitor
@@ -29,8 +30,6 @@ from bindsnet.analysis.plotting import (
 	plot_voltages,
 	plot_locally_connected_weights
 )
-
-from vfa_voting import vfa_assignment, vfa_prediction
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=0)
@@ -181,7 +180,12 @@ for epoch in range(n_epochs):
 			label_tensor = torch.tensor(labels)
 
 			# Get network predictions.
-			
+			vfa_pred, vfa_rates = vfa(
+				spikes=spike_record,
+				labels=label_tensor,
+				n_labels=n_classes,
+				rates=vfa_rates
+			)
 			all_activity_pred = all_activity(
 				spikes=spike_record,
 				assignments=assignments,
@@ -193,10 +197,7 @@ for epoch in range(n_epochs):
 				proportions=proportions,
 				n_labels=n_classes,
 			)
-			vfa_pred = vfa_prediction(
-				spikes=spike_record,
-				proportions=vfa_proportions
-			)
+			
 			# Compute network accuracy according to available classification strategies.
 			accuracy["vfa"].append(
 				100
@@ -245,13 +246,6 @@ for epoch in range(n_epochs):
 				labels=label_tensor,
 				n_labels=n_classes,
 				rates=rates,
-			)
-			
-			vfa_proportions, vfa_rates = vfa_assignment(
-				spikes=spike_record,
-				labels=label_tensor,
-				n_labels=n_classes,
-				rates=vfa_rates
 			)
 
 			labels = []

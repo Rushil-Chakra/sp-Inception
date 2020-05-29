@@ -3,7 +3,6 @@ import torch
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
-from torch.nn import Parameter
 
 from torchvision import transforms
 from tqdm import tqdm
@@ -13,20 +12,25 @@ from time import time as t
 from bindsnet import ROOT_DIR
 from bindsnet.datasets import MNIST, DataLoader
 from bindsnet.encoding import PoissonEncoder
+from bindsnet.evaluation import (
+	all_activity,
+	proportion_weighting,
+	assign_labels,
+	vfa,
+)
+from bindsnet.models import DiehlAndCook2015v2
 from bindsnet.network.monitors import Monitor
 from bindsnet.utils import get_square_weights, get_square_assignments
-from bindsnet.evaluation import all_activity, proportion_weighting, assign_labels
 from bindsnet.analysis.plotting import (
 	plot_input,
 	plot_spikes,
 	plot_weights,
-	plot_assignments,
 	plot_performance,
+	plot_assignments,
 	plot_voltages,
-	plot_locally_connected_weights,
+	plot_locally_connected_weights
 )
 
-from vfa_voting import vfa_assignment, vfa_prediction
 from Inception import sp_Inception
 
 
@@ -89,7 +93,7 @@ else:
 	
 # Determines number of workers to use
 if n_workers == -1:
-	n_workers = gpu * 8 * torch.cuda.device_count()
+	n_workers = gpu * 4 * torch.cuda.device_count()
 
 network = sp_Inception(
 	n_input=784,
@@ -174,13 +178,14 @@ for epoch in range(n_epochs):
 		if step % update_steps == 0 and step > 0:
 			# Convert the array of labels into a tensor
 			label_tensor = torch.tensor(labels)	
-			
-			vfa_predictions = vfa_prediction(
-				spikes=spike_record,
-				proportions=vfa_proportions
-			)
 
 			# Get network predictions.
+			vfa_pred, vfa_rates = vfa(
+				spikes=spike_record,
+				labels=label_tensor,
+				n_labels=n_classes,
+				rates=vfa_rates
+			)
 			all_activity_pred = all_activity(
 				spikes=spike_record,
 				assignments=assignments,
@@ -240,13 +245,6 @@ for epoch in range(n_epochs):
                 n_labels=n_classes,
                 rates=rates,
             )
-
-			vfa_proportions, vfa_rates = vfa_assignment(
-				spikes=spike_record,
-				labels=label_tensor,
-				n_labels=n_classes,
-				rates=vfa_rates
-			)
 
 			labels = []
 

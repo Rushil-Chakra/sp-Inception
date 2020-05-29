@@ -16,6 +16,7 @@ from bindsnet.evaluation import (
 	all_activity,
 	proportion_weighting,
 	assign_labels,
+	vfa,
 )
 from bindsnet.models import LocallyConnectedNetwork
 from bindsnet.network.monitors import Monitor
@@ -29,8 +30,6 @@ from bindsnet.analysis.plotting import (
 	plot_voltages,
 	plot_locally_connected_weights
 )
-
-from vfa_voting import vfa_assignment, vfa_prediction
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=0)
@@ -83,7 +82,7 @@ else:
 if n_workers == -1:
 	n_workers = gpu * 4 * torch.cuda.device_count()
 
-n_sqrt = int(np.ceil(np.sqrt(n_neurons)))
+n_sqrt = int(np.ceil(np.sqrt(n_neurons*4)))
 start_intensity = intensity
 
 network = LocallyConnectedNetwork(
@@ -114,11 +113,11 @@ dataset = MNIST(
 
 # Neuron assignments and spike proportions.
 n_classes = 10
-assignments = -torch.ones(n_neurons)
-proportions = torch.zeros(n_neurons, n_classes)
-rates = torch.zeros(n_neurons, n_classes)
-vfa_proportions = torch.zeros(n_neurons, n_classes)
-vfa_rates = torch.zeros(n_neurons, n_classes)
+assignments = -torch.ones(n_neurons * 4)
+proportions = torch.zeros(n_neurons * 4, n_classes)
+rates = torch.zeros(n_neurons * 4, n_classes)
+vfa_proportions = torch.zeros(n_neurons * 4, n_classes)
+vfa_rates = torch.zeros(n_neurons * 4, n_classes)
 
 # Sequence of accuracy estimates.
 accuracy = {"vfa": [], "all": [], "proportion": []}
@@ -147,7 +146,7 @@ assigns_im = None
 perf_ax = None
 voltage_axes, voltage_ims = None, None
 
-spike_record = torch.zeros(update_interval, time, n_neurons)
+spike_record = torch.zeros(update_interval, time, n_neurons * 4)
 
 # Train the network.
 print("\nBegin training.\n")
@@ -182,7 +181,12 @@ for epoch in range(n_epochs):
 			label_tensor = torch.tensor(labels)
 			
 			# Get network predictions.
-			
+			vfa_pred, vfa_rates = vfa(
+				spikes=spike_record,
+				labels=label_tensor,
+				n_labels=n_classes,
+				rates=vfa_rates
+			)
 			all_activity_pred = all_activity(
 				spikes=spike_record,
 				assignments=assignments,
@@ -194,10 +198,7 @@ for epoch in range(n_epochs):
 				proportions=proportions,
 				n_labels=n_classes,
 			)
-			vfa_pred = vfa_prediction(
-				spikes=spike_record,
-				proportions=vfa_proportions
-			)
+
 			# Compute network accuracy according to available classification strategies.
 			accuracy["vfa"].append(
 				100
@@ -247,13 +248,6 @@ for epoch in range(n_epochs):
 				n_labels=n_classes,
 				rates=rates,
 			)
-			
-			vfa_proportions, vfa_rates = vfa_assignment(
-				spikes=spike_record,
-				labels=label_tensor,
-				n_labels=n_classes,
-				rates=vfa_rates
-			)
 
 			labels = []
 
@@ -274,30 +268,30 @@ for epoch in range(n_epochs):
 
 		# Optionally plot various simulation information.
 		if plot:
-			image = batch["image"][:, 0].view(28, 28)
-			inpt = inputs["X"][:, 0].view(time, 784).sum(0).view(28, 28)
+			#image = batch["image"][:, 0].view(28, 28)
+			#inpt = inputs["X"][:, 0].view(time, 784).sum(0).view(28, 28)
 			input_exc_weights = network.connections[("X", "Y")].w
 			square_weights = get_square_weights(
-				input_exc_weights.view(784, n_neurons), n_sqrt, 28
+				input_exc_weights.view(784, n_neurons*4), n_sqrt, 28
 			)
-			square_assignments = get_square_assignments(assignments, n_sqrt)
-			spikes_ = {
-				layer: spikes[layer].get("s")[:, 0].contiguous()
-				for layer in spikes
-			}
+			#square_assignments = get_square_assignments(assignments, n_sqrt)
+			#spikes_ = {
+			#	layer: spikes[layer].get("s")[:, 0].contiguous()
+			#	for layer in spikes
+			#}
 			#voltages = {"Y": exc_voltages}
-			inpt_axes, inpt_ims = plot_input(
-				image, inpt, label=labels[step * batch_size % update_interval], axes=inpt_axes, ims=inpt_ims
-			)
-			spike_ims, spike_axes = plot_spikes(
-				spikes_, ims=spike_ims, axes=spike_axes
-			)
+			#inpt_axes, inpt_ims = plot_input(
+			#	image, inpt, label=labels[step * batch_size % update_interval], axes=inpt_axes, ims=inpt_ims
+			#)
+			#spike_ims, spike_axes = plot_spikes(
+			#	spikes_, ims=spike_ims, axes=spike_axes
+			#)
 			weights_im = plot_weights(square_weights, im=weights_im)
-			assigns_im = plot_assignments(square_assignments, im=assigns_im)
+			#assigns_im = plot_assignments(square_assignments, im=assigns_im)
 			perf_ax = plot_performance(accuracy, x_scale=update_steps * batch_size, ax=perf_ax)
 			#voltage_ims, voltage_axes = plot_voltages(
 			#	voltages, ims=voltage_ims, axes=voltage_axes, plot_type="line"
-			#S)
+			#)
 
 			plt.pause(1e-8)
 
