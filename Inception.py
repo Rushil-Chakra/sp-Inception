@@ -10,8 +10,6 @@ from bindsnet.network.nodes import Input, DiehlAndCookNodes
 from bindsnet.network.topology import Connection, LocalConnection
 from bindsnet.learning import PostPre, NoOp, WeightDependentPostPre
 
-from ConcatConnection import ConcatConnection
-
 class sp_Inception(Network):
 	def __init__(
 		self,

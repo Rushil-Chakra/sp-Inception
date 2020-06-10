@@ -16,7 +16,7 @@ from bindsnet.evaluation import (
 	all_activity,
 	proportion_weighting,
 	assign_labels,
-	vfa,
+	#vfa,
 )
 from bindsnet.models import DiehlAndCook2015v2
 from bindsnet.network.monitors import Monitor
@@ -32,7 +32,7 @@ from bindsnet.analysis.plotting import (
 )
 
 from Inception import sp_Inception
-
+from vfa import vfa
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=0)
@@ -251,6 +251,7 @@ for epoch in range(n_epochs):
 		labels.extend(batch["label"].tolist())
 
 		# Run the network on the input.
+		lab = batch['label'][0].item()
 		network.run(inputs=inputs, time=time, input_time_dim=1)
 
 		s = torch.cat(tuple(monitor.get('s').permute((1, 0, 2)) for monitor in list(spikes.values())), dim=2)
@@ -280,6 +281,6 @@ for epoch in range(n_epochs):
 		network.reset_state_variables()  # Reset state variables.
 
 if plot:
-	plt.savefig('Inception.png')
+	plt.savefig('Inception_batch_size-32.png')
 print("Progress: %d / %d (%.4f seconds)" % (epoch + 1, n_epochs, t() - start))
 print("Training complete.\n")

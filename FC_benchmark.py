@@ -16,7 +16,6 @@ from bindsnet.evaluation import (
 	all_activity,
 	proportion_weighting,
 	assign_labels,
-	vfa,
 )
 from bindsnet.models import DiehlAndCook2015v2
 from bindsnet.network.monitors import Monitor
@@ -30,6 +29,8 @@ from bindsnet.analysis.plotting import (
 	plot_voltages,
 	plot_locally_connected_weights
 )
+
+from vfa import vfa
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=0)
